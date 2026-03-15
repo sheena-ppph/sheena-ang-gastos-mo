@@ -35,15 +35,21 @@ export default function QuickLogOverlay({ categories, onClose, onSaved }) {
 
     setSaving(true)
     try {
-      await addExpense({
+      const result = await addExpense({
         amount: Number(amount),
         category: selectedCat.name,
         note: note.trim() || null,
         date,
       })
-      onSaved()
-    } catch {
-      setError('Failed to save')
+      if (result) {
+        onSaved()
+      } else {
+        setError('Save returned empty — check connection')
+        setSaving(false)
+      }
+    } catch (err) {
+      console.error('Save failed:', err)
+      setError('Failed: ' + (err?.message || String(err)))
       setSaving(false)
     }
   }
