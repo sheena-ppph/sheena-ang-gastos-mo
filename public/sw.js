@@ -1,37 +1,42 @@
-const CACHE_NAME = 'anggastosmo-v1'
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-]
+const CACHE_NAME = 'anggastosmo-v2'
 
-// Install
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
-  )
+// Install — skip waiting to activate immediately
+self.addEventListener('install', () => {
   self.skipWaiting()
 })
 
-// Activate
+// Activate — clear old caches and take control
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())
   )
-  self.clients.claim()
 })
 
-// Fetch (network first, cache fallback)
+// Fetch — network first, cache fallback (skip caching HTML navigations)
 self.addEventListener('fetch', (event) => {
+  const { request } = event
+
+  // Always go to network for navigation (HTML pages)
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => caches.match('/index.html'))
+    )
+    return
+  }
+
+  // For other assets: network first, cache fallback
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then((response) => {
-        const clone = response.clone()
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
+        if (response.ok) {
+          const clone = response.clone()
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+        }
         return response
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(request))
   )
 })
 
@@ -67,7 +72,6 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // Focus existing window
       for (const client of clients) {
         if (client.url.includes(self.location.origin)) {
           client.focus()
@@ -75,7 +79,6 @@ self.addEventListener('notificationclick', (event) => {
           return
         }
       }
-      // Open new window
       return self.clients.openWindow('/?quicklog=1')
     })
   )
