@@ -3,12 +3,23 @@ import { Trash2, Pencil, X, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { getExpenses, getExpensesRange, deleteExpense, addExpense } from '../lib/storage'
 import { getManilaDateStr, getWeekRange, getMonthRange, getMonthName, formatDate, formatTime } from '../lib/dateUtils'
 import { formatPeso } from '../lib/formatCurrency'
-import { DEFAULT_CATEGORIES } from '../lib/categories'
+import { DEFAULT_CATEGORIES, getCategoryEmoji, getCategoryType } from '../lib/categories'
 
 const VIEWS = ['Day', 'Week', 'Month']
 
-function getCategoryEmoji(name) {
-  return DEFAULT_CATEGORIES.find(c => c.name === name)?.emoji || '📌'
+function TypeBadge({ type }) {
+  if (type === 'need') {
+    return (
+      <span className="inline-flex text-[8px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md">
+        Need
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex text-[8px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md">
+      Want
+    </span>
+  )
 }
 
 export default function Summary({ categories }) {
@@ -232,9 +243,12 @@ export default function Summary({ categories }) {
                             </div>
 
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-ink truncate">
-                                {expense.category}
-                              </p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-sm font-medium text-ink truncate">
+                                  {expense.category}
+                                </p>
+                                <TypeBadge type={getCategoryType(expense.category)} />
+                              </div>
                               {expense.note && (
                                 <p className="text-[11px] text-ink-muted truncate">{expense.note}</p>
                               )}

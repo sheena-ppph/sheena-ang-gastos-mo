@@ -3,6 +3,7 @@ import { X, Check, CalendarDays } from 'lucide-react'
 import { addExpense } from '../lib/storage'
 import { formatPeso } from '../lib/formatCurrency'
 import { getManilaDateStr } from '../lib/dateUtils'
+import { getCategoryType } from '../lib/categories'
 
 const MIN_DATE = '2026-03-01'
 const MAX_YEAR_DATE = '2026-12-31'
@@ -129,22 +130,32 @@ export default function QuickLogOverlay({ categories, onClose, onSaved }) {
         <div className="px-5 pb-3">
           <p className="section-label mb-2">Category</p>
           <div className="grid grid-cols-5 gap-2">
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => { setSelectedCat(cat); setError('') }}
-                className={`flex flex-col items-center gap-1 py-2 px-1 rounded-xl transition-all ${
-                  selectedCat?.id === cat.id
-                    ? 'bg-blue-100 ring-2 ring-blue-500 scale-105'
-                    : 'bg-surface hover:bg-blue-50'
-                }`}
-              >
-                <span className="text-xl">{cat.emoji}</span>
-                <span className="text-[9px] font-semibold text-ink-muted leading-tight text-center truncate w-full">
-                  {cat.name.split(' ')[0]}
-                </span>
-              </button>
-            ))}
+            {categories.map(cat => {
+              const type = getCategoryType(cat.name)
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => { setSelectedCat(cat); setError('') }}
+                  className={`flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl transition-all border-b-2 ${
+                    selectedCat?.id === cat.id
+                      ? 'bg-blue-100 ring-2 ring-blue-500 scale-105 border-b-transparent'
+                      : type === 'need'
+                        ? 'bg-surface hover:bg-blue-50 border-b-emerald-400'
+                        : 'bg-surface hover:bg-blue-50 border-b-amber-400'
+                  }`}
+                >
+                  <span className="text-xl">{cat.emoji}</span>
+                  <span className="text-[9px] font-semibold text-ink-muted leading-tight text-center truncate w-full">
+                    {cat.name.split(' ')[0]}
+                  </span>
+                  <span className={`text-[7px] font-bold uppercase tracking-wider ${
+                    type === 'need' ? 'text-emerald-600' : 'text-amber-600'
+                  }`}>
+                    {type}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
 

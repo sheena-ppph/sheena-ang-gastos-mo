@@ -1,14 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Trash2, Coffee, CalendarDays, CalendarRange, CalendarCheck } from 'lucide-react'
+import { Trash2, Coffee, CalendarDays, CalendarRange, CalendarCheck, ShieldCheck, Heart } from 'lucide-react'
 import { getExpenses, getExpensesRange, deleteExpense } from '../lib/storage'
 import { getManilaDateStr, getWeekRange, getMonthRange, formatTime } from '../lib/dateUtils'
 import { formatPeso } from '../lib/formatCurrency'
-import { DEFAULT_CATEGORIES } from '../lib/categories'
-
-function getCategoryEmoji(categoryName) {
-  const cat = DEFAULT_CATEGORIES.find(c => c.name === categoryName)
-  return cat?.emoji || '📌'
-}
+import { getCategoryEmoji, getCategoryType } from '../lib/categories'
 
 function getLastWeekRange(todayStr) {
   const d = new Date(todayStr + 'T00:00:00')
@@ -27,12 +22,29 @@ function getLastWeekRange(todayStr) {
   return { start: fmt(lastMonday), end: fmt(lastSunday) }
 }
 
+function TypeBadge({ type }) {
+  if (type === 'need') {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md">
+        Need
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-md">
+      Want
+    </span>
+  )
+}
+
 export default function ExpenseLog({ categories, onRefresh }) {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [lastWeekTotal, setLastWeekTotal] = useState(0)
   const [thisWeekTotal, setThisWeekTotal] = useState(0)
   const [thisMonthTotal, setThisMonthTotal] = useState(0)
+  const [monthNeeds, setMonthNeeds] = useState(0)
+  const [monthWants, setMonthWants] = useState(0)
   const today = getManilaDateStr()
 
   const loadExpenses = async () => {
@@ -56,6 +68,15 @@ export default function ExpenseLog({ categories, onRefresh }) {
     setLastWeekTotal(lwData.reduce((s, e) => s + Number(e.amount), 0))
     setThisWeekTotal(twData.reduce((s, e) => s + Number(e.amount), 0))
     setThisMonthTotal(tmData.reduce((s, e) => s + Number(e.amount), 0))
+
+    // Needs vs Wants for this month
+    let needs = 0, wants = 0
+    tmData.forEach(e => {
+      if (getCategoryType(e.category) === 'need') needs += Number(e.amount)
+      else wants += Number(e.amount)
+    })
+    setMonthNeeds(needs)
+    setMonthWants(wants)
   }
 
   useEffect(() => {
@@ -71,6 +92,9 @@ export default function ExpenseLog({ categories, onRefresh }) {
   }
 
   const total = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
+  const monthTotal = monthNeeds + monthWants
+  const needsPct = monthTotal > 0 ? (monthNeeds / monthTotal) * 100 : 0
+  const wantsPct = monthTotal > 0 ? (monthWants / monthTotal) * 100 : 0
 
   return (
     <div className="pt-4 space-y-4">
@@ -89,8 +113,42 @@ export default function ExpenseLog({ categories, onRefresh }) {
         </div>
       </div>
 
+      {/* Needs vs Wants — This Month */}
+      {monthTotal > 0 && (
+        <div className="bg-card rounded-2xl p-4 shadow-card animate-fade-in-up delay-1">
+          <p className="section-label mb-3">Needs vs Wants — This Month</p>
+          {/* Progress bar */}
+          <div className="h-3 rounded-full overflow-hidden flex bg-surface">
+            <div
+              className="h-full bg-emerald-500 transition-all duration-500"
+              style={{ width: `${needsPct}%` }}
+            />
+            <div
+              className="h-full bg-amber-400 transition-all duration-500"
+              style={{ width: `${wantsPct}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-2.5">
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+              <div>
+                <p className="text-xs font-semibold text-ink">Needs</p>
+                <p className="font-mono text-xs text-ink-muted">{formatPeso(monthNeeds)} · {needsPct.toFixed(0)}%</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div>
+                <p className="text-xs font-semibold text-ink text-right">Wants</p>
+                <p className="font-mono text-xs text-ink-muted">{formatPeso(monthWants)} · {wantsPct.toFixed(0)}%</p>
+              </div>
+              <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Period Summary Cards */}
-      <div className="grid grid-cols-3 gap-2 animate-fade-in-up delay-1">
+      <div className="grid grid-cols-3 gap-2 animate-fade-in-up delay-2">
         <div className="bg-card rounded-xl p-3 shadow-card">
           <div className="flex items-center gap-1.5 mb-1.5">
             <CalendarDays size={12} className="text-ink-faint" />
@@ -115,7 +173,7 @@ export default function ExpenseLog({ categories, onRefresh }) {
       </div>
 
       {/* Expense List */}
-      <div className="animate-fade-in-up delay-2">
+      <div className="animate-fade-in-up delay-3">
         <p className="section-label mb-3">Today's Expenses</p>
 
         {loading ? (
@@ -132,40 +190,48 @@ export default function ExpenseLog({ categories, onRefresh }) {
           </div>
         ) : (
           <div className="space-y-2">
-            {expenses.map((expense, i) => (
-              <div
-                key={expense.id}
-                className="bg-card rounded-xl p-3.5 shadow-card flex items-center gap-3 animate-fade-in-up group"
-                style={{ animationDelay: `${i * 40}ms` }}
-              >
-                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
-                  <span className="text-lg">{getCategoryEmoji(expense.category)}</span>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-ink truncate">
-                    {expense.category}
-                  </p>
-                  {expense.note && (
-                    <p className="text-xs text-ink-muted truncate">{expense.note}</p>
-                  )}
-                  <p className="text-[10px] text-ink-faint mt-0.5">
-                    {formatTime(expense.created_at)}
-                  </p>
-                </div>
-
-                <p className="font-mono text-sm font-600 text-ink shrink-0">
-                  {formatPeso(expense.amount)}
-                </p>
-
-                <button
-                  onClick={() => handleDelete(expense.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-danger-light transition-all shrink-0"
+            {expenses.map((expense, i) => {
+              const type = getCategoryType(expense.category)
+              return (
+                <div
+                  key={expense.id}
+                  className={`bg-card rounded-xl p-3.5 shadow-card flex items-center gap-3 animate-fade-in-up group border-l-[3px] ${
+                    type === 'need' ? 'border-l-emerald-400' : 'border-l-amber-400'
+                  }`}
+                  style={{ animationDelay: `${i * 40}ms` }}
                 >
-                  <Trash2 size={14} className="text-danger" />
-                </button>
-              </div>
-            ))}
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+                    <span className="text-lg">{getCategoryEmoji(expense.category)}</span>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-ink truncate">
+                        {expense.category}
+                      </p>
+                      <TypeBadge type={type} />
+                    </div>
+                    {expense.note && (
+                      <p className="text-xs text-ink-muted truncate">{expense.note}</p>
+                    )}
+                    <p className="text-[10px] text-ink-faint mt-0.5">
+                      {formatTime(expense.created_at)}
+                    </p>
+                  </div>
+
+                  <p className="font-mono text-sm font-600 text-ink shrink-0">
+                    {formatPeso(expense.amount)}
+                  </p>
+
+                  <button
+                    onClick={() => handleDelete(expense.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-danger-light transition-all shrink-0"
+                  >
+                    <Trash2 size={14} className="text-danger" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
