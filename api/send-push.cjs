@@ -1,7 +1,7 @@
-import webpush from 'web-push'
-import { createClient } from '@supabase/supabase-js'
+const webpush = require('web-push')
+const { createClient } = require('@supabase/supabase-js')
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   try {
     // Protect with secret token
     const token = req.query.token || req.headers['x-push-token']
