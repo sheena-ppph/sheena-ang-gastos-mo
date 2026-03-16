@@ -34,6 +34,22 @@ export default function App() {
       window.history.replaceState({}, '', '/')
     }
 
+    // Auto-update: when new service worker is available, activate it and reload
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(reg => {
+        reg.addEventListener('updatefound', () => {
+          const newSW = reg.installing
+          if (newSW) {
+            newSW.addEventListener('statechange', () => {
+              if (newSW.state === 'activated') {
+                window.location.reload()
+              }
+            })
+          }
+        })
+      })
+    }
+
     return () => window.removeEventListener('anggastosmo-quicklog', handleQuickLog)
   }, [])
 
