@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 const NOTIF_MESSAGES = [
   '💸 Spent anything? Log it now!',
   '📝 Quick expense check-in!',
@@ -25,7 +27,6 @@ function setLastNotifTime() {
   localStorage.setItem('anggastosmo_last_notif_time', new Date().toISOString())
 }
 
-// Find the most recent scheduled slot at or before the current hour
 function getLastScheduledSlot(prefs) {
   const now = getManilaTime()
   const hour = now.getHours()
@@ -40,18 +41,69 @@ function getLastScheduledSlot(prefs) {
   return slot
 }
 
-// Check if a notification was missed and show one immediately
+// Check if a notification was missed — triggers in-app reminder
 function checkMissedNotification(prefs) {
   if (!prefs.enabled) return
 
   const lastSlot = getLastScheduledSlot(prefs)
-  if (!lastSlot) return // outside active hours
+  if (!lastSlot) return
 
   const lastShown = getLastNotifTime()
 
-  // If never shown, or last shown was before this slot, show now
   if (!lastShown || lastShown < lastSlot) {
-    showNotification()
+    setLastNotifTime()
+    // Dispatch event so App.jsx shows ReminderOverlay
+    window.dispatchEvent(new CustomEvent('anggastosmo-reminder'))
+  }
+}
+
+// Convert VAPID key from base64url to Uint8Array
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = atob(base64)
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)))
+}
+
+// Subscribe to Web Push and save subscription to Supabase
+async function subscribeToPush(registration) {
+  try {
+    const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+    if (!vapidKey) {
+      console.warn('No VAPID public key configured')
+      return
+    }
+
+    // Check existing subscription
+    let subscription = await registration.pushManager.getSubscription()
+
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      })
+    }
+
+    // Save to Supabase (upsert by endpoint to avoid duplicates)
+    if (supabase) {
+      const subJson = subscription.toJSON()
+
+      // Check if this subscription already exists
+      const { data: existing } = await supabase
+        .from('push_subscriptions')
+        .select('id')
+        .eq('subscription->>endpoint', subJson.endpoint)
+
+      if (!existing || existing.length === 0) {
+        await supabase.from('push_subscriptions').insert({
+          subscription: subJson,
+        })
+      }
+    }
+
+    console.log('Push subscription active')
+  } catch (err) {
+    console.warn('Push subscription failed:', err)
   }
 }
 
@@ -67,11 +119,15 @@ export async function registerNotifications(prefs) {
     return false
   }
 
-  // Register service worker
+  // Register service worker and subscribe to push
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.register('/sw.js')
-      // Send prefs to SW for best-effort background scheduling
+
+      // Subscribe to Web Push for real background notifications
+      await subscribeToPush(reg)
+
+      // Also send prefs to SW for best-effort local scheduling
       navigator.serviceWorker.ready.then(registration => {
         if (registration.active) {
           registration.active.postMessage({ type: 'start-scheduler', prefs })
@@ -100,13 +156,11 @@ export function unregisterNotifications() {
 function startNotificationScheduler(prefs) {
   unregisterNotifications()
 
-  // Check every minute if it's time to send a notification
   const checkAndNotify = () => {
     const now = getManilaTime()
     const hour = now.getHours()
     const minute = now.getMinutes()
 
-    // Fire within first 2 minutes of scheduled hour (avoids missing exact top-of-hour)
     if (
       minute < 2 &&
       hour >= prefs.start_hour &&
@@ -116,20 +170,20 @@ function startNotificationScheduler(prefs) {
       const lastShown = getLastNotifTime()
       const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
 
-      // Don't double-fire within 2 minutes
       if (!lastShown || lastShown < twoMinutesAgo) {
-        showNotification()
+        setLastNotifTime()
+        // Show in-app reminder instead of browser notification
+        window.dispatchEvent(new CustomEvent('anggastosmo-reminder'))
       }
     }
   }
 
-  // Check every 60 seconds
   notifInterval = setInterval(checkAndNotify, 60 * 1000)
 
-  // Check right now for missed notifications
+  // Check for missed notifications on start
   checkMissedNotification(prefs)
 
-  // Also check when app becomes visible again (user returns to app)
+  // Check when app becomes visible
   visibilityHandler = () => {
     if (document.visibilityState === 'visible') {
       checkMissedNotification(prefs)
@@ -138,28 +192,7 @@ function startNotificationScheduler(prefs) {
   document.addEventListener('visibilitychange', visibilityHandler)
 }
 
-function showNotification() {
-  if (Notification.permission !== 'granted') return
-
-  setLastNotifTime()
-
-  const notif = new Notification('Ang Gastos Mo!', {
-    body: getRandomMessage(),
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    tag: 'anggastosmo-reminder',
-    renotify: true,
-    data: { action: 'quick-log' },
-  })
-
-  notif.onclick = () => {
-    window.focus()
-    window.dispatchEvent(new CustomEvent('anggastosmo-quicklog'))
-    notif.close()
-  }
-}
-
-// Listen for service worker messages (when app is in background)
+// Listen for service worker messages (when notification is clicked)
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data?.action === 'quick-log') {

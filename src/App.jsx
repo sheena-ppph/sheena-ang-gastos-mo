@@ -5,6 +5,7 @@ import Summary from './components/Summary'
 import Categories from './components/Categories'
 import Settings from './components/Settings'
 import QuickLogOverlay from './components/QuickLogOverlay'
+import ReminderOverlay from './components/ReminderOverlay'
 import { getCategories } from './lib/storage'
 
 const TABS = [
@@ -18,14 +19,19 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('log')
   const [categories, setCategories] = useState([])
   const [showQuickLog, setShowQuickLog] = useState(false)
+  const [showReminder, setShowReminder] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     getCategories().then(setCategories)
 
-    // Listen for notification quick-log events
+    // Listen for notification quick-log events (from SW click)
     const handleQuickLog = () => setShowQuickLog(true)
     window.addEventListener('anggastosmo-quicklog', handleQuickLog)
+
+    // Listen for reminder events (from catch-up / scheduled check)
+    const handleReminder = () => setShowReminder(true)
+    window.addEventListener('anggastosmo-reminder', handleReminder)
 
     // Check URL param (when opened from notification)
     const params = new URLSearchParams(window.location.search)
@@ -50,7 +56,10 @@ export default function App() {
       })
     }
 
-    return () => window.removeEventListener('anggastosmo-quicklog', handleQuickLog)
+    return () => {
+      window.removeEventListener('anggastosmo-quicklog', handleQuickLog)
+      window.removeEventListener('anggastosmo-reminder', handleReminder)
+    }
   }, [])
 
   const refresh = () => setRefreshKey(k => k + 1)
@@ -134,6 +143,17 @@ export default function App() {
             setShowQuickLog(false)
             refresh()
           }}
+        />
+      )}
+
+      {/* Reminder Overlay — alarm-style, must be manually dismissed */}
+      {showReminder && (
+        <ReminderOverlay
+          onLogNow={() => {
+            setShowReminder(false)
+            setShowQuickLog(true)
+          }}
+          onDismiss={() => setShowReminder(false)}
         />
       )}
     </div>

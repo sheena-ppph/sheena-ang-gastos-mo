@@ -1,30 +1,16 @@
-const CACHE_NAME = 'anggastosmo-v3'
-
-// Notification config (defaults, updated via postMessage from main thread)
-let notifPrefs = { enabled: true, start_hour: 8, end_hour: 20, interval_hours: 2 }
-let schedulerTimeout = null
-
-const NOTIF_MESSAGES = [
-  '💸 Spent anything? Log it now!',
-  '📝 Quick expense check-in!',
-  '₱ Track your spending!',
-  '🧾 Any purchases to log?',
-]
+const CACHE_NAME = 'anggastosmo-v4'
 
 // Install — skip waiting to activate immediately
 self.addEventListener('install', () => {
   self.skipWaiting()
 })
 
-// Activate — clear old caches, take control, start scheduler
+// Activate — clear old caches, take control
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => {
-      self.clients.claim()
-      scheduleNextNotification()
-    })
+    ).then(() => self.clients.claim())
   )
 })
 
@@ -32,7 +18,6 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event
 
-  // Always go to network for navigation (HTML pages)
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(() => caches.match('/index.html'))
@@ -40,7 +25,6 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // For other assets: network first, cache fallback
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -54,74 +38,52 @@ self.addEventListener('fetch', (event) => {
   )
 })
 
-// Message handler — receive prefs from main thread
-self.addEventListener('message', (event) => {
-  if (event.data?.type === 'start-scheduler') {
-    notifPrefs = event.data.prefs || notifPrefs
-    scheduleNextNotification()
+// Real push notification from server
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'Ang Gastos Mo!',
+    body: '💸 Spent anything? Log it now!',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
   }
-})
 
-// Best-effort background notification scheduling
-function getManilaTime() {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-}
-
-function scheduleNextNotification() {
-  if (schedulerTimeout) clearTimeout(schedulerTimeout)
-
-  const now = getManilaTime()
-  const hour = now.getHours()
-  const minute = now.getMinutes()
-
-  // Find next scheduled slot
-  let nextHour = null
-  for (let h = notifPrefs.start_hour; h <= notifPrefs.end_hour; h += notifPrefs.interval_hours) {
-    if (h > hour || (h === hour && minute < 1)) {
-      nextHour = h
-      break
+  if (event.data) {
+    try {
+      data = { ...data, ...event.data.json() }
+    } catch (e) {
+      data.body = event.data.text()
     }
   }
 
-  // If no slot left today, schedule for first slot tomorrow
-  if (nextHour === null) {
-    const tomorrow = new Date(now)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    tomorrow.setHours(notifPrefs.start_hour, 0, 0, 0)
-    const msUntil = tomorrow.getTime() - now.getTime()
-    schedulerTimeout = setTimeout(fireAndReschedule, msUntil)
-    return
-  }
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon || '/icons/icon-192.png',
+      badge: data.badge || '/icons/icon-192.png',
+      tag: 'anggastosmo-reminder',
+      renotify: true,
+      requireInteraction: true, // Stays until manually dismissed
+      vibrate: [300, 200, 300, 200, 300, 200, 300], // Alarm pattern
+      data: { action: 'quick-log' },
+      actions: [
+        { action: 'log', title: '📝 Log Now' },
+        { action: 'dismiss', title: 'Later' },
+      ],
+    })
+  )
+})
 
-  const target = new Date(now)
-  target.setHours(nextHour, 0, 0, 0)
-  const msUntil = Math.max(target.getTime() - now.getTime(), 1000)
-
-  schedulerTimeout = setTimeout(fireAndReschedule, msUntil)
-}
-
-function fireAndReschedule() {
-  const msg = NOTIF_MESSAGES[Math.floor(Math.random() * NOTIF_MESSAGES.length)]
-
-  self.registration.showNotification('Ang Gastos Mo!', {
-    body: msg,
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
-    tag: 'anggastosmo-reminder',
-    renotify: true,
-    data: { action: 'quick-log' },
-  })
-
-  // Reschedule for next slot
-  scheduleNextNotification()
-}
-
-// Notification click → open app with quick-log overlay
+// Notification click → open app with reminder overlay
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
+  const action = event.action // 'log', 'dismiss', or '' (body click)
+
+  if (action === 'dismiss') return
+
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      // Try to focus existing window
       for (const client of clients) {
         if (client.url.includes(self.location.origin)) {
           client.focus()
@@ -129,7 +91,16 @@ self.addEventListener('notificationclick', (event) => {
           return
         }
       }
+      // No existing window — open new one
       return self.clients.openWindow('/?quicklog=1')
     })
   )
+})
+
+// Message handler — receive prefs from main thread
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'start-scheduler') {
+    // Acknowledged — real push comes from server now
+    console.log('Push scheduler: server-side via cron-job.org')
+  }
 })
