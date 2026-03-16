@@ -125,6 +125,9 @@ export default function Settings() {
                 <p className="text-xs text-blue-800">
                   Every {notifPrefs.interval_hours} hours: {scheduleDisplay()}
                 </p>
+                <p className="text-[10px] text-blue-600 mt-2">
+                  Reminders work best when the app is open. If you miss one, you'll be reminded when you next open the app.
+                </p>
               </div>
             </div>
           )}

@@ -25,7 +25,7 @@ export default function App() {
 
     // Listen for notification quick-log events
     const handleQuickLog = () => setShowQuickLog(true)
-    window.addEventListener('gastotrack-quicklog', handleQuickLog)
+    window.addEventListener('anggastosmo-quicklog', handleQuickLog)
 
     // Check URL param (when opened from notification)
     const params = new URLSearchParams(window.location.search)
@@ -34,7 +34,7 @@ export default function App() {
       window.history.replaceState({}, '', '/')
     }
 
-    return () => window.removeEventListener('gastotrack-quicklog', handleQuickLog)
+    return () => window.removeEventListener('anggastosmo-quicklog', handleQuickLog)
   }, [])
 
   const refresh = () => setRefreshKey(k => k + 1)

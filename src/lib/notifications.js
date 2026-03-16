@@ -6,17 +6,53 @@ const NOTIF_MESSAGES = [
 ]
 
 let notifInterval = null
+let visibilityHandler = null
 
 function getRandomMessage() {
   return NOTIF_MESSAGES[Math.floor(Math.random() * NOTIF_MESSAGES.length)]
 }
 
-function getManilaHour() {
-  return new Date().toLocaleString('en-US', {
-    timeZone: 'Asia/Manila',
-    hour: 'numeric',
-    hour12: false,
-  })
+function getManilaTime() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
+}
+
+function getLastNotifTime() {
+  const t = localStorage.getItem('anggastosmo_last_notif_time')
+  return t ? new Date(t) : null
+}
+
+function setLastNotifTime() {
+  localStorage.setItem('anggastosmo_last_notif_time', new Date().toISOString())
+}
+
+// Find the most recent scheduled slot at or before the current hour
+function getLastScheduledSlot(prefs) {
+  const now = getManilaTime()
+  const hour = now.getHours()
+
+  if (hour < prefs.start_hour || hour > prefs.end_hour) return null
+
+  const slotsSinceStart = Math.floor((hour - prefs.start_hour) / prefs.interval_hours)
+  const slotHour = prefs.start_hour + (slotsSinceStart * prefs.interval_hours)
+
+  const slot = new Date(now)
+  slot.setHours(slotHour, 0, 0, 0)
+  return slot
+}
+
+// Check if a notification was missed and show one immediately
+function checkMissedNotification(prefs) {
+  if (!prefs.enabled) return
+
+  const lastSlot = getLastScheduledSlot(prefs)
+  if (!lastSlot) return // outside active hours
+
+  const lastShown = getLastNotifTime()
+
+  // If never shown, or last shown was before this slot, show now
+  if (!lastShown || lastShown < lastSlot) {
+    showNotification()
+  }
 }
 
 export async function registerNotifications(prefs) {
@@ -31,10 +67,16 @@ export async function registerNotifications(prefs) {
     return false
   }
 
-  // Register service worker for background notifications
+  // Register service worker
   if ('serviceWorker' in navigator) {
     try {
-      await navigator.serviceWorker.register('/sw.js')
+      const reg = await navigator.serviceWorker.register('/sw.js')
+      // Send prefs to SW for best-effort background scheduling
+      navigator.serviceWorker.ready.then(registration => {
+        if (registration.active) {
+          registration.active.postMessage({ type: 'start-scheduler', prefs })
+        }
+      })
     } catch (e) {
       console.warn('Service worker registration failed:', e)
     }
@@ -49,6 +91,10 @@ export function unregisterNotifications() {
     clearInterval(notifInterval)
     notifInterval = null
   }
+  if (visibilityHandler) {
+    document.removeEventListener('visibilitychange', visibilityHandler)
+    visibilityHandler = null
+  }
 }
 
 function startNotificationScheduler(prefs) {
@@ -56,46 +102,60 @@ function startNotificationScheduler(prefs) {
 
   // Check every minute if it's time to send a notification
   const checkAndNotify = () => {
-    const now = new Date()
-    const manilaTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
-    const hour = manilaTime.getHours()
-    const minute = manilaTime.getMinutes()
+    const now = getManilaTime()
+    const hour = now.getHours()
+    const minute = now.getMinutes()
 
-    // Only fire at the top of scheduled hours
+    // Fire within first 2 minutes of scheduled hour (avoids missing exact top-of-hour)
     if (
-      minute === 0 &&
+      minute < 2 &&
       hour >= prefs.start_hour &&
       hour <= prefs.end_hour &&
       (hour - prefs.start_hour) % prefs.interval_hours === 0
     ) {
-      showNotification()
+      const lastShown = getLastNotifTime()
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000)
+
+      // Don't double-fire within 2 minutes
+      if (!lastShown || lastShown < twoMinutesAgo) {
+        showNotification()
+      }
     }
   }
 
   // Check every 60 seconds
   notifInterval = setInterval(checkAndNotify, 60 * 1000)
 
-  // Also check right now
-  checkAndNotify()
+  // Check right now for missed notifications
+  checkMissedNotification(prefs)
+
+  // Also check when app becomes visible again (user returns to app)
+  visibilityHandler = () => {
+    if (document.visibilityState === 'visible') {
+      checkMissedNotification(prefs)
+    }
+  }
+  document.addEventListener('visibilitychange', visibilityHandler)
 }
 
 function showNotification() {
-  if (Notification.permission === 'granted') {
-    const notif = new Notification('Ang Gastos Mo!', {
-      body: getRandomMessage(),
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      tag: 'anggastosmo-reminder',
-      renotify: true,
-      data: { action: 'quick-log' },
-    })
+  if (Notification.permission !== 'granted') return
 
-    notif.onclick = () => {
-      window.focus()
-      // The app listens for this event to show the quick-log overlay
-      window.dispatchEvent(new CustomEvent('anggastosmo-quicklog'))
-      notif.close()
-    }
+  setLastNotifTime()
+
+  const notif = new Notification('Ang Gastos Mo!', {
+    body: getRandomMessage(),
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: 'anggastosmo-reminder',
+    renotify: true,
+    data: { action: 'quick-log' },
+  })
+
+  notif.onclick = () => {
+    window.focus()
+    window.dispatchEvent(new CustomEvent('anggastosmo-quicklog'))
+    notif.close()
   }
 }
 
