@@ -1,29 +1,26 @@
-const webpush = require('web-push')
-const { createClient } = require('@supabase/supabase-js')
-
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   try {
-    // Protect with secret token
+    // Dynamic imports to avoid bundler issues
+    const webpush = (await import('web-push')).default
+    const { createClient } = await import('@supabase/supabase-js')
+
     const token = req.query.token || req.headers['x-push-token']
     if (token !== process.env.PUSH_SECRET) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
-    // Check Manila time is within 8AM-8PM
     const manilaTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }))
     const hour = manilaTime.getHours()
     if (hour < 8 || hour > 20) {
       return res.status(200).json({ message: 'Outside notification hours', hour })
     }
 
-    // Set up web-push
     webpush.setVapidDetails(
       `mailto:${process.env.VAPID_EMAIL}`,
       process.env.VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY
     )
 
-    // Get subscriptions from Supabase
     const supabase = createClient(
       process.env.VITE_SUPABASE_URL,
       process.env.VITE_SUPABASE_ANON_KEY
@@ -58,7 +55,6 @@ module.exports = async function handler(req, res) {
       data: { action: 'quick-log' },
     })
 
-    // Send to all subscriptions
     const results = await Promise.allSettled(
       subs.map(async (sub) => {
         try {
@@ -83,7 +79,7 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({
       error: 'Function crashed',
       message: err.message,
-      stack: err.stack,
+      stack: err.stack?.split('\n').slice(0, 5),
     })
   }
 }
