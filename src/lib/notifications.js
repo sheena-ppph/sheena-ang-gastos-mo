@@ -69,41 +69,49 @@ function urlBase64ToUint8Array(base64String) {
 async function subscribeToPush(registration) {
   try {
     const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+    console.log('[Push] VAPID key present:', !!vapidKey)
     if (!vapidKey) {
-      console.warn('No VAPID public key configured')
+      console.warn('[Push] No VAPID public key configured')
+      alert('Push setup: No VAPID key found')
       return
     }
 
     // Check existing subscription
     let subscription = await registration.pushManager.getSubscription()
+    console.log('[Push] Existing subscription:', !!subscription)
 
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(vapidKey),
       })
+      console.log('[Push] New subscription created')
     }
 
-    // Save to Supabase (upsert by endpoint to avoid duplicates)
+    // Save to Supabase
     if (supabase) {
       const subJson = subscription.toJSON()
+      console.log('[Push] Saving to Supabase...', subJson.endpoint?.substring(0, 50))
 
-      // Check if this subscription already exists
-      const { data: existing } = await supabase
-        .from('push_subscriptions')
-        .select('id')
-        .eq('subscription->>endpoint', subJson.endpoint)
+      // Clear old subscriptions and insert fresh
+      await supabase.from('push_subscriptions').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      const { error } = await supabase.from('push_subscriptions').insert({
+        subscription: subJson,
+      })
 
-      if (!existing || existing.length === 0) {
-        await supabase.from('push_subscriptions').insert({
-          subscription: subJson,
-        })
+      if (error) {
+        console.error('[Push] Supabase save error:', error)
+        alert('Push save error: ' + error.message)
+      } else {
+        console.log('[Push] Subscription saved to Supabase!')
       }
+    } else {
+      console.warn('[Push] No Supabase client')
+      alert('Push setup: No Supabase connection')
     }
-
-    console.log('Push subscription active')
   } catch (err) {
-    console.warn('Push subscription failed:', err)
+    console.error('[Push] Subscribe failed:', err)
+    alert('Push subscribe error: ' + err.message)
   }
 }
 
